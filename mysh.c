@@ -6,6 +6,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <string.h>
+#include <stdint.h>
 
 
 static void handle_line(const char *line) {
@@ -16,7 +18,57 @@ static void handle_line(const char *line) {
 #endif
 }
 
-static void read_commands(int input_fd) {
+
+static void print_prompt(void) {
+    size_t capacity = 128;
+    char *cwd = malloc(capacity);
+
+    if (cwd == NULL) {
+        perror("mysh: malloc");
+        return;
+    }
+
+    while (getcwd(cwd, capacity) == NULL) {
+        if (errno != ERANGE) {
+            perror("mysh: getcwd");
+            free(cwd);
+            return;
+        }
+
+        if (capacity > SIZE_MAX / 2) {
+            fprintf(stderr, "mysh: path too long\n");
+            free(cwd);
+            return;
+        }
+
+        capacity *= 2;
+        char *temp = realloc(cwd, capacity);
+
+        if (temp == NULL) {
+            perror("mysh: realloc");
+            free(cwd);
+            return;
+        }
+
+        cwd = temp;
+    }
+
+    const char *home = getenv("HOME");
+    size_t home_len = home ? strlen(home) : 0;
+
+    if (home_len > 0 &&
+        strncmp(cwd, home, home_len) == 0 &&
+        (cwd[home_len] == '/' || cwd[home_len] == '\0')) {
+        printf("~%s$ ", cwd + home_len);
+    } else {
+        printf("%s$ ", cwd);
+    }
+
+    fflush(stdout);
+    free(cwd);
+}
+
+static void read_commands(int input_fd, int interactive) {
     size_t capacity = 128;
     size_t length = 0;
 
@@ -27,8 +79,14 @@ static void read_commands(int input_fd) {
         return;
     }
 
+    int needs_prompt = interactive;
+
     while (1) {
         char c;
+        if (needs_prompt) {
+            print_prompt();
+            needs_prompt = 0;
+        }
         ssize_t bytes_read = read(input_fd, &c, 1);
 
         if (bytes_read == -1) {
@@ -52,6 +110,7 @@ static void read_commands(int input_fd) {
             buffer[length] = '\0';
             handle_line(buffer);
             length = 0;
+            needs_prompt = interactive;
             continue;
         }
 
@@ -103,7 +162,7 @@ int main(int argc, char *argv[]) {
         printf("Welcome to my shell!\n");
     }
 
-    read_commands(input_fd);
+    read_commands(input_fd, interactive);
 
     if (input_fd != STDIN_FILENO) {
         close(input_fd);
