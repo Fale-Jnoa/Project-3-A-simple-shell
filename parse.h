@@ -25,4 +25,7 @@ int parse_job(const char *line, job *out);
 // Memory cleanup
 void free_job(job *j);
 
+// Returns 1 if the filename matches the wildcard pattern.
+int wildcard_match_name(const char *pattern, const char *name);
+
 #endif

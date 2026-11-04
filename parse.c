@@ -280,3 +280,45 @@ int parse_job(const char *line, job *out) {
 
     return result;
 }
+
+
+int wildcard_match_name(const char *pattern, const char *name) {
+    const char *star = strchr(pattern, '*');
+
+    // Without a wildcard, require an exact match.
+    if (star == NULL) {
+        return strcmp(pattern, name) == 0;
+    }
+
+    // The assignment allows only one asterisk.
+    if (strchr(star + 1, '*') != NULL) {
+        return 0;
+    }
+
+    // Patterns beginning with '*' cannot match hidden files.
+    if (pattern[0] == '*' && name[0] == '.') {
+        return 0;
+    }
+
+    size_t prefix_len = (size_t)(star - pattern);
+    size_t suffix_len = strlen(star + 1);
+    size_t name_len = strlen(name);
+
+    // The filename must be long enough for both parts.
+    if (name_len < prefix_len ||
+        name_len - prefix_len < suffix_len) {
+        return 0;
+    }
+
+    // Compare everything before the asterisk.
+    if (strncmp(pattern, name, prefix_len) != 0) {
+        return 0;
+    }
+
+    // Compare everything after the asterisk.
+    if (strcmp(star + 1, name + name_len - suffix_len) != 0) {
+        return 0;
+    }
+
+    return 1;
+}
