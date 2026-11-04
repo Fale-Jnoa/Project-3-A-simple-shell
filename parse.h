@@ -28,4 +28,8 @@ void free_job(job *j);
 // Returns 1 if the filename matches the wildcard pattern.
 int wildcard_match_name(const char *pattern, const char *name);
 
+int collect_wildcard_matches(const char *pattern, char ***out, size_t *count);
+
+void free_wildcard_matches(char **matches, size_t count);
+
 #endif

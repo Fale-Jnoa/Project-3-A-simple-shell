@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
+#include <errno.h>
 
 void free_tokens(token_list *tokens) {
     for (size_t i = 0; i < tokens->count; i++) {
@@ -321,4 +323,142 @@ int wildcard_match_name(const char *pattern, const char *name) {
     }
 
     return 1;
+}
+
+
+void free_wildcard_matches(char **matches, size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        free(matches[i]);
+    }
+    free(matches);
+}
+
+static int compare_matches(const void *a, const void *b) {
+    const char *const *left = a;
+    const char *const *right = b;
+    return strcmp(*left, *right);
+}
+
+int collect_wildcard_matches(const char *pattern,
+                             char ***out,
+                             size_t *count) {
+    *out = NULL;
+    *count = 0;
+
+    const char *star = strchr(pattern, '*');
+
+    if (!star || strchr(star + 1, '*')) {
+        return 0;
+    }
+
+    const char *slash = strrchr(pattern, '/');
+    const char *name_pattern = slash ? slash + 1 : pattern;
+
+    if (star < name_pattern) {
+        return 0;
+    }
+
+    size_t prefix_len = slash ? (size_t)(slash - pattern + 1) : 0;
+
+    char *prefix = malloc(prefix_len + 1);
+    if (!prefix) {
+        return -1;
+    }
+
+    memcpy(prefix, pattern, prefix_len);
+    prefix[prefix_len] = '\0';
+
+    DIR *dir = opendir(prefix_len ? prefix : ".");
+
+    if (!dir) {
+        free(prefix);
+        return 0;
+    }
+
+    char **results = NULL;
+    size_t used = 0;
+    size_t capacity = 0;
+    int failed = 0;
+
+    for (;;) {
+        errno = 0;
+        struct dirent *entry = readdir(dir);
+
+        if (!entry) {
+            if (errno != 0) {
+                failed = 1;
+            }
+            break;
+        }
+
+        if (strcmp(entry->d_name, ".") == 0 ||
+            strcmp(entry->d_name, "..") == 0 ||
+            !wildcard_match_name(name_pattern, entry->d_name)) {
+            continue;
+        }
+
+        size_t name_len = strlen(entry->d_name);
+
+        if (prefix_len > SIZE_MAX - name_len - 1) {
+            failed = 1;
+            break;
+        }
+
+        char *full_path = malloc(prefix_len + name_len + 1);
+
+        if (!full_path) {
+            failed = 1;
+            break;
+        }
+
+        memcpy(full_path, prefix, prefix_len);
+        memcpy(full_path + prefix_len, entry->d_name, name_len + 1);
+
+        if (used == capacity) {
+            size_t new_capacity = capacity ? capacity * 2 : 8;
+
+            if (new_capacity < capacity ||
+                new_capacity > SIZE_MAX / sizeof(*results)) {
+                free(full_path);
+                failed = 1;
+                break;
+            }
+
+            char **temp = realloc(
+                results, new_capacity * sizeof(*results)
+            );
+
+            if (!temp) {
+                free(full_path);
+                failed = 1;
+                break;
+            }
+
+            results = temp;
+            capacity = new_capacity;
+        }
+
+        results[used++] = full_path;
+    }
+
+    if (closedir(dir) != 0) {
+        failed = 1;
+    }
+
+    free(prefix);
+
+    if (failed) {
+        free_wildcard_matches(results, used);
+        return -1;
+    }
+
+    // Make the results deterministic for testing.
+    if (used > 1) {
+        qsort(results, used, sizeof(*results), compare_matches);
+    }
+
+    *out = results;
+    *count = used;
+
+    return 0;
 }
