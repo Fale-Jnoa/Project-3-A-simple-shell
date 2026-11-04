@@ -8,16 +8,47 @@
 #include <errno.h>
 #include <string.h>
 #include <stdint.h>
+#include "parse.h"
 
 
-static void handle_line(const char *line) {
-#ifdef DEBUG_INPUT
-    printf("READ: [%s]\n", line);
-#else
-    (void)line;
-#endif
+
+static int handle_line(const char *line, int interactive) {
+    job j;
+    int result = parse_job(line, &j);
+
+    if (result == 0) {
+        // Empty command or comment.
+        return 0;
+    }
+
+    if (result == -1) {
+        fprintf(stderr, "mysh: syntax error\n");
+        return 0;
+    }
+
+    if (result == -2) {
+        fprintf(stderr, "mysh: unable to parse command\n");
+        return 0;
+    }
+
+    int should_exit = 0;
+
+    // Exit can appear in any pipeline stage.
+    for (int i = 0; i < j.n; i++) {
+        if (j.cmds[i].argc > 0 &&
+            strcmp(j.cmds[i].argv[0], "exit") == 0) {
+            should_exit = 1;
+        }
+    }
+
+    // Execute the job using the shared interface.
+    (void)run_job(&j, interactive);
+
+    // Free every allocation created by the parser.
+    free_job(&j);
+
+    return should_exit;
 }
-
 
 static void print_prompt(void) {
     size_t capacity = 128;
@@ -101,14 +132,17 @@ static void read_commands(int input_fd, int interactive) {
         if (bytes_read == 0) {
             if (length > 0) {
                 buffer[length] = '\0';
-                handle_line(buffer);
+                (void)handle_line(buffer, interactive);
             }
             break;
         }
 
         if (c == '\n') {
             buffer[length] = '\0';
-            handle_line(buffer);
+            
+            if (handle_line(buffer, interactive)) {
+                break;
+            }
             length = 0;
             needs_prompt = interactive;
             continue;
