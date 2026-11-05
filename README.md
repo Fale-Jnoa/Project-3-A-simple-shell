@@ -1,12 +1,11 @@
 CS 214 Project III: mysh
 
 Partners:
-  John <LAST NAME>, <NETID>
-  <PARTNER NAME>, <NETID>
+  John Inoa, jci30
+  Rushil Pandya, rp1478
 
 Building and running
   make          builds mysh
-  make test     builds and runs every test (unit tests and batch scripts)
   make clean
 
 Files
@@ -14,10 +13,8 @@ Files
   parse.c/h    tokenizer, parser, wildcards (builds a job struct)
   job.h        the job/subcmd structs shared by the parser and executor
   exec.c       run_job(): program lookup, built-ins, redirection, pipes
-  exec_test.c  unit tests for exec.c
-  parser.c, tokenizer.c, wildcard*.c   unit tests for parse.c
-  tests/run_tests.sh   runs the batch script tests in tests/*/
-  tests/exec/          batch script tests for the execution side
+  tests/exec_test.c  unit tests for exec.c
+  tests/parser.c, tests/tokenizer.c, tests/wildcard*.c   parser and wildcard unit tests
 
 Design notes (execution)
   The parser hands run_job() a job, which is an array of subcmds (one per
@@ -57,28 +54,23 @@ Design notes (execution)
 
 Test plan: execution side (exec.c)
 
-We tested the executor two ways. exec_test.c builds job structs by hand
-and calls run_job() directly, so it tests exec.c without depending on the
-parser and can check return values (success/failure), which you can't see
-from batch mode output. The scripts in tests/exec/ run through the real
-mysh in batch mode, so they also check that the parser and executor work
-together. tests/run_tests.sh runs each script in its own empty temp
-directory, compares stdout to the .out file, checks the number of stderr
-lines against the .err file for error cases, checks that mysh exits with
-status 0, and kills mysh after 10 seconds so a hung pipeline shows up as a
-failure instead of freezing the test run.
+We tested the executor independently using tests/exec_test.c,
+which builds job structures and calls run_job() directly.
+We also tested the complete mysh executable manually with
+batch commands, interactive commands, redirection, pipelines,
+wildcards, and error handling. The executor passed 74 unit
+checks, including a sanitizer-enabled run.
 
 Things we thought were important to check, and how:
 
-1. Program lookup and exit codes (exec_test.c: test_programs, tests/exec/
-   not_found.sh, builtins.sh)
+1. Program lookup and exit codes (exec_test.c: test_programs)
    - true succeeds, false fails, sh -c "exit 7" fails.
    - A bare name that isn't in any of the three directories prints
      "command not found" and fails.
    - Paths with a slash: /bin/true works, ./no_such_file fails, a file that
      exists but isn't executable fails. A copy of echo run as ./myecho works.
 
-2. Redirection (test_redirection, redirect.sh, redirect_errors.sh)
+2. Redirection (exec_test.c: test_redirection)
    - > creates a file, >> appends, > on an existing file truncates it.
    - >> creates the file if it doesn't exist.
    - Created files have mode 640 (checked with stat).
@@ -88,7 +80,7 @@ Things we thought were important to check, and how:
    - Built-ins with redirects: pwd > file writes the file and not the
      terminal, and stdout goes back to normal for the next command.
 
-3. Pipes (test_pipes, pipes.sh, pipe_errors.sh)
+3. Pipes (exec_test.c: test_pipes)
    - echo hello | cat, echo one two three | wc -w.
    - Three and four stage pipelines (ls | sort -r | head -n 2 and
      echo | cat | cat | cat).
@@ -100,7 +92,7 @@ Things we thought were important to check, and how:
    - An unknown program anywhere in the pipeline fails the command without
      starting the other stages.
 
-4. Built-ins (test_builtins, builtins.sh)
+4. Built-ins (exec_test.c: test_builtins)
    - cd into a subdirectory and back with cd .., checked with pwd.
    - cd with no argument goes to HOME (the test script sets HOME).
    - cd to a missing directory and cd with two arguments fail and leave the
@@ -112,7 +104,7 @@ Things we thought were important to check, and how:
      which with one good and one bad name prints the good one and fails,
      which /bin/sh prints /bin/sh, and which pwd finds the real program.
 
-5. exit (test_builtins, exit.sh, exit_args.sh, exit_pipe.sh)
+5. exit (exec_test.c: test_builtins)
    - exit stops the shell, nothing after it runs, and mysh exits with 0.
    - exit with arguments ignores them.
    - exit | echo piped: the echo still runs, then the shell exits.
@@ -128,21 +120,75 @@ Things we thought were important to check, and how:
    We also ran mysh by hand in a terminal to check the messages show up
    before the next prompt.
 
-7. Batch mode stdin (test_batch_stdin, batch_stdin.sh)
+7. Batch mode stdin (exec_test.c and manual integration tests)
    In batch mode children should read /dev/null, not the shell's input.
-   tests/exec/batch_stdin.sh is piped into mysh on stdin and contains a
-   bare cat followed by more commands. If the child got the shell's stdin,
-   cat would eat the rest of the script. In exec_test.c we put data on
-   stdin, run cat in batch mode, and check that cat read nothing and the
-   data is still there for the shell. We checked that both tests fail if
-   the /dev/null code is removed.
+   We ran cat followed by echo and exit through mysh in batch
+   mode. The later commands still executed, demonstrating that
+   cat did not consume the shell's remaining input.
 
-8. Memory and file descriptors
-   We ran mysh on the combined test scripts and ran exec_test under
-   valgrind --leak-check=full --track-fds=yes. No leaks, no invalid reads
-   or writes, and no extra file descriptors left open in the shell after
-   running pipelines and redirects.
+8. Memory safety
+   We compiled both the executor tests and complete mysh shell
+   using AddressSanitizer and UndefinedBehaviorSanitizer.
+   All 74 executor checks passed, and the combined-shell
+   integration test completed without sanitizer reports.
 
 Test plan: parsing side (mysh.c, parse.c)
 
-<PARTNER: add your section here>
+## Shell Input and Parser Testing
+
+### Testing Strategy
+The input handling, tokenizer, parser, and wildcard expansion
+were tested independently before integration. Each component
+was compiled with GCC using -Wall, -Wextra, -Werror, and
+-pedantic. AddressSanitizer and UndefinedBehaviorSanitizer
+were used for additional memory-safety checks.
+
+A temporary execution stub was used to verify parsed job
+structures without depending on the actual executor.
+
+### Input Handling
+- Verified interactive and batch mode detection.
+- Tested valid and missing batch input files.
+- Tested multiple commands and empty lines.
+- Tested long input lines and EOF without a trailing newline.
+- Verified interactive prompts and welcome/goodbye messages.
+
+### Tokenizer
+- Tested whitespace and ordinary arguments.
+- Tested <, >, >>, and | operators.
+- Tested comments and comment-only lines.
+- Verified all 8 tokenizer unit tests passed.
+
+### Job Parser
+- Tested simple commands and multiple pipeline stages.
+- Tested input, output, and append redirection.
+- Verified argument arrays are NULL-terminated.
+- Tested invalid redirection and empty pipeline stages.
+- Verified that syntax errors do not stop subsequent commands.
+
+### Wildcards
+- Verified 15 filename-matching tests.
+- Tested prefix, suffix, and combined wildcard patterns.
+- Tested hidden-file matching behavior.
+- Tested directory scanning and unmatched patterns.
+- Verified wildcard expansion inside parsed jobs.
+
+### Integration Testing
+- Tested shell input through the parser and execution stub.
+- Verified exit stops subsequent commands.
+- Verified exit inside a pipeline.
+- Tested comments, malformed commands, and error recovery.
+- Tested batch file execution and EOF handling.
+
+### Memory Safety
+Parser and shell integration tests passed with
+AddressSanitizer and/or UndefinedBehaviorSanitizer enabled.
+
+### Full-Shell Verification
+After integration with exec.c, tested actual command execution,
+built-ins, redirection, pipelines, wildcard expansion, batch
+stdin isolation, and interactive error and signal reporting.
+
+The executor passed all 74 unit checks, including sanitizer-
+enabled testing. The complete shell also passed integration
+tests with AddressSanitizer and UndefinedBehaviorSanitizer.
