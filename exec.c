@@ -18,7 +18,7 @@ static const char *search_dirs[] = { "/usr/local/bin", "/usr/bin", "/bin", NULL 
 // Mode for files created by > and >> (rw-r-----).
 #define OUT_MODE (S_IRUSR | S_IWUSR | S_IRGRP)
 
-/* ---------- Program lookup ---------- */
+// ---------- Program lookup ----------
 
 static int is_builtin(const char *name) {
     return strcmp(name, "cd") == 0 ||
@@ -27,8 +27,7 @@ static int is_builtin(const char *name) {
            strcmp(name, "exit") == 0;
 }
 
-// Searches the three directories for an executable called name.
-// Returns a malloc'd path, or NULL if nothing was found.
+// Returns an allocated executable path, or NULL if not found.
 static char *search_path(const char *name) {
     size_t name_len = strlen(name);
 
@@ -53,9 +52,7 @@ static char *search_path(const char *name) {
     return NULL;
 }
 
-// Works out which file to execv() for a non built-in command.
-// Names containing a slash are used as-is. Prints an error and
-// returns NULL if there is no executable file to run.
+// Paths containing '/' bypass the search directories.
 static char *find_program(const char *name) {
     if (strchr(name, '/') != NULL) {
         if (access(name, X_OK) != 0) {
@@ -263,7 +260,7 @@ static int run_builtin_in_shell(subcmd *cmd) {
         return 0;
     }
 
-    // None of the built-ins read stdin, so the input file only had to open
+    // Built-ins do not read stdin, so the input file can be closed.
     close_if_open(in_fd);
 
     int saved_stdout = -1;
@@ -466,7 +463,6 @@ static int run_processes(job *j, int interactive) {
         }
     }
 
-    // If a fork failed partway through, the command fails
     if (forked < n) {
         result = 0;
     }

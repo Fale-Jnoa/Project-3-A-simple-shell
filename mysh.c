@@ -17,7 +17,7 @@ static int handle_line(const char *line, int interactive) {
     int result = parse_job(line, &j);
 
     if (result == 0) {
-        // Empty command or comment.
+
         return 0;
     }
 
@@ -41,10 +41,8 @@ static int handle_line(const char *line, int interactive) {
         }
     }
 
-    // Execute the job using the shared interface.
     (void)run_job(&j, interactive);
 
-    // Free every allocation created by the parser.
     free_job(&j);
 
     return should_exit;

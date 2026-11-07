@@ -402,7 +402,7 @@ static int parse_stage(const token_list *tokens, size_t start,
             free_wildcard_matches(matches, match_count);
         }
 
-        /* Normal argument, or wildcard pattern with no matches. */
+        // Keep unmatched wildcard patterns unchanged.
         char *arg = copy_token(token);
         if (arg == NULL) {
             return -2;
